@@ -48,6 +48,7 @@
     .monat strong small { display: block; font-size: 0.7rem; font-weight: 700; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em; }
     .abmelden, .heute-knopf { border: none; background: rgba(255,255,255,0.18); color: #fff; border-radius: 999px; padding: 0.55rem 0.9rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; }
     .heute-knopf { background: #fff; color: #1f6b2b; }
+    .abmelden .dreh-symbol { display: inline-block; vertical-align: -2px; margin-right: 0.15rem; } .abmelden.dreht .dreh-symbol { animation: dreh 0.8s linear infinite; } .abmelden:disabled { cursor: wait; opacity: 0.85; }
     .kacheln { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; margin-top: 1.1rem; }
     .kachel { background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.22); border-radius: 18px; padding: 0.75rem 0.85rem; }
     button.kachel { text-align: left; color: inherit; cursor: pointer; }
@@ -139,6 +140,8 @@
     .detail-kopf .unter { font-size: 0.85rem; color: var(--leise); }
     .detail-kopf .gross { margin-left: auto; text-align: right; font-size: 1.6rem; font-weight: 900; color: #1f6b2b; }
     .detail-kopf .gross small { display: block; font-size: 0.72rem; color: var(--leise); font-weight: 700; }
+    .detail-kopf.mit-datum { position: relative; padding-top: 2rem; }
+    .detail-kopf .geaendert { position: absolute; top: 0.6rem; right: 1rem; font-size: 0.72rem; font-weight: 700; color: #1f6b2b; background: rgba(46,154,62,0.1); border-radius: 999px; padding: 0.15rem 0.6rem; }
     .abschnitt { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.85rem 1rem 0.45rem; border-top: 1px solid var(--linie); font-weight: 800; font-size: 0.82rem; color: var(--tinte); text-transform: uppercase; letter-spacing: 0.05em; }
     .abschnitt small { text-transform: none; letter-spacing: 0; color: var(--leise); font-weight: 600; font-size: 0.78rem; }
     .fg { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 0.75rem; padding: 0.65rem 1rem; border-top: 1px solid var(--linie); font-size: 0.88rem; scroll-margin: 4rem; }
@@ -214,6 +217,7 @@
         <div class="rechts-oben">
           <button type="button" class="heute-knopf" id="heute" hidden>Heute</button>
           <div class="monat"><button type="button" id="vor" aria-label="Vorheriger Werktag">‹</button><strong id="tag-text"></strong><button type="button" id="nach" aria-label="Nächster Werktag">›</button></div>
+          <button type="button" class="abmelden" id="aktualisieren" title="Lädt alle 5 Minuten automatisch neu"><svg class="dreh-symbol" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Aktualisieren</button>
           <button type="button" class="abmelden" id="abmelden">Abmelden</button>
         </div>
       </div>
@@ -288,7 +292,9 @@ const Linien = (function () {
   function wochentag(iso) { return alsDatum(iso).getDay(); }
   function werktag(iso) { const t = wochentag(iso); return t !== 0 && t !== 6; }
   function naechsterWerktag(iso, richtung) { let d = plusTage(iso, richtung || 1); while (!werktag(d)) d = plusTage(d, richtung || 1); return d; }
-  function startTag(heute) { return werktag(heute) ? heute : naechsterWerktag(heute, 1); }
+  // Starttag der Seite: heute (am Wochenende Montag); mit Uhrzeit ab 14:00 schon der nächste Fahrtag
+  const WECHSEL_UHR = "14:00";
+  function startTag(heute, uhr) { return (werktag(heute) && !(uhr && uhr >= WECHSEL_UHR)) ? heute : naechsterWerktag(heute, 1); }
   function kurz(iso) { const t = iso.split("-"); return t[2] + "." + t[1] + "."; }
   function zeitraum(von, bis) { return !bis ? "ab " + kurz(von) : von === bis ? kurz(von) : kurz(von) + "–" + kurz(bis); }
 
@@ -441,6 +447,10 @@ const Linien = (function () {
       l.weg.sort((a, b) => (b.status.seit || "").localeCompare(a.status.seit || "") || a.name.localeCompare(b.name, "de"));
       l.gruppe = String(l.ziel).split(/\s+/)[0] || "?";
       l.zielText = String(l.ziel).replace(/\s+\d{5}\s+/, " · ").trim();
+      // zuletzt geändert: neueste "Letzte Änderung" aller Zeilen der Linie (auch Ausgetragene), sonst neuestes "Gültig ab"
+      const zeilen = l.hin.concat(l.rueck, l.kuenftig, l.weg);
+      const neuestes = (feld) => zeilen.map((r) => isoAusDe(r.raw[feld])).filter(Boolean).sort().pop() || "";
+      l.geaendert = neuestes("geaendert") || neuestes("ab");
       const alle = l.hin.concat(l.rueck);
       l.zahlen = {
         hin: l.hin.filter((r) => r.faehrt).length + l.extra.filter((x) => tourVon(x.tour).hin).length,
@@ -511,6 +521,9 @@ if (typeof module !== "undefined") module.exports = Linien;
     const API_URL = "https://script.google.com/macros/s/AKfycbzlUcw-sJFQLJouP44M_oC2Ko2ZKXv-DuR1VkHTZQKo-lUsB0Hk42fgJcP1v2NHolpd1Q/exec";
     // Demo (erfundene Daten): mit ?demo oder wenn die Seite lokal geöffnet wird
     const DEMO = /[?&]demo\b/.test(location.search) || !/^https?:$/.test(location.protocol) || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    // Neu laden alle 5 Minuten; nur in der Demo zum Ausprobieren: ?takt=Sekunden, ?uhr=HH:MM
+    const PARAM = new URLSearchParams(location.search);
+    const TAKT_MS = (DEMO && +PARAM.get("takt") > 0 ? +PARAM.get("takt") : 300) * 1000;
     const $ = (id) => document.getElementById(id);
     const FARBEN = ["#2e9a3e", "#0284c7", "#e11d48", "#7c3aed", "#ea580c", "#0d9488", "#ca8a04", "#db2777"];
     // Überschrift je Werkstatt (Ziel-Kürzel aus der Fahrgastliste); KHM und KSK bleiben wie in der Liste
@@ -537,14 +550,31 @@ if (typeof module !== "undefined") module.exports = Linien;
     // ---------- Zustand ----------
     let daten = null, tag = "", ansicht = "linien", suche = "", gewaehlt = null, markiert = null;
     let erg = null, hw = null;
+    let tagGewaehlt = false;   // Tag selbst gewählt (‹ › Heute): bleibt beim Neuladen, bis ein neuer Kalendertag beginnt
+    let geladenUm = 0;
 
-    async function lade(pin) {
-      $("laden").hidden = false;
+    function jetztUhr() {
+      if (DEMO && /^\d{2}:\d{2}$/.test(PARAM.get("uhr") || "")) return PARAM.get("uhr");
+      const d = new Date(); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    }
+    const startTagJetzt = () => Linien.startTag(daten.heute, jetztUhr());
+
+    // still = automatisch/per Knopf: ohne Sperr-Overlay, und nicht mitten in eine offene Eingabe hinein
+    async function lade(pin, still) {
+      if (!still) $("laden").hidden = false;
       let r;
       try { r = await apiPost({ aktion: "linien", pin: pin }); }
       catch (e) { $("laden").hidden = true; return { status: "error", message: "Keine Verbindung." }; }
       $("laden").hidden = true;
-      if (r.status === "ok") { daten = r; if (!tag) tag = Linien.startTag(r.heute); auswerten(); zeichne(); }
+      if (r.status === "ok" && still && document.querySelector("#rechts .korr")) return { status: "spaeter" };
+      if (r.status === "ok") {
+        if (daten && daten.heute !== r.heute) tagGewaehlt = false;
+        daten = r; geladenUm = Date.now();
+        if (!tag || !tagGewaehlt) tag = startTagJetzt();
+        const y = window.scrollY;
+        auswerten(); zeichne();
+        if (still) window.scrollTo(0, y);
+      }
       return r;
     }
     function auswerten() { erg = Linien.auswerten(daten, tag); hw = Linien.hinweise(daten, erg); }
@@ -566,7 +596,9 @@ if (typeof module !== "undefined") module.exports = Linien;
       $("z-hinweise").textContent = pruefOffen; $("z-hinweise").classList.toggle("null", !pruefOffen);
       links(); rechts();
       $("stand").textContent = (DEMO ? "DEMO – erfundene Daten · " : "") + "Stand " + new Date(daten.stand).toLocaleString("de-DE") +
-        (daten.letzteMail ? " · letzte NE.W-Mail eingetragen: " + Linien.kurz(daten.letzteMail.slice(0, 10)) + daten.letzteMail.slice(0, 4) + daten.letzteMail.slice(10) : "");
+        (daten.letzteMail ? " · letzte NE.W-Mail eingetragen: " + Linien.kurz(daten.letzteMail.slice(0, 10)) + daten.letzteMail.slice(0, 4) + daten.letzteMail.slice(10) : "") +
+        " · lädt alle " + Math.round(TAKT_MS / 60000 * 10) / 10 + " Min. neu";
+      $("aktualisieren").title = "Stand " + new Date(daten.stand).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) + " · lädt alle 5 Minuten automatisch neu";
     }
 
     // "prüfen" nur zeigen, solange der Hinweis dazu nicht erledigt ist
@@ -721,7 +753,9 @@ if (typeof module !== "undefined") module.exports = Linien;
       const fahrt = (rows, cls, pfeil, titel) => feld(cls, pfeil, titel, rows.length ? rows.filter((r) => r.faehrt).length + " von " + rows.length + " fahren " + esc(tagKurz(tag)) : "",
         rows.length ? rows.map(fgZeile).join("") : '<div class="leer klein">Keine ' + titel + " auf dieser Linie.</div>");
       $("rechts").innerHTML =
-        '<div class="karte"><div class="detail-kopf"><div class="lb xl" style="--c:' + gruppenFarbe() + '">' + esc(l.code) + "</div><div><strong>Linie " + esc(l.code) + '</strong><span class="unter">Ziel: ' + esc(werkstatt(l) || "–") + "</span>" +
+        '<div class="karte"><div class="detail-kopf' + (l.geaendert ? " mit-datum" : "") + '">' +
+        (l.geaendert ? '<span class="geaendert" title="Neueste „Letzte Änderung“ in der Fahrgastliste">Zuletzt geändert ' + esc(Linien.kurz(l.geaendert) + l.geaendert.slice(0, 4)) + "</span>" : "") +
+        '<div class="lb xl" style="--c:' + gruppenFarbe() + '">' + esc(l.code) + "</div><div><strong>Linie " + esc(l.code) + '</strong><span class="unter">Ziel: ' + esc(werkstatt(l) || "–") + "</span>" +
         (l.hinweis ? '<div class="meta"><span class="pill w">⚠ ' + esc(l.hinweis) + "</span></div>" : "") +
         '</div><div class="gross">' + z.fahrgaeste + "<small>Fahrgäste " + esc(tagKurz(tag)) + '</small></div><button type="button" class="knopf-neu" data-a="' + aktionen.push({ typ: "neu", x: l }) + '">+ Fahrgast</button></div></div>' +
         (l.extra.length ? feld("extra", "+", "Heute zusätzlich", "laut Tagesplan", l.extra.map(extraZeile).join("")) : "") +
@@ -878,7 +912,30 @@ if (typeof module !== "undefined") module.exports = Linien;
 
     // ---------- Bedienung ----------
     function wechsleAnsicht(a) { ansicht = a; document.querySelectorAll("#reiter button").forEach((x) => x.classList.toggle("an", x.dataset.ansicht === a)); if (suche) { suche = ""; $("suche").value = ""; } zeichne(); }
-    function setzeTag(neu) { tag = neu; auswerten(); zeichne(); }
+    function setzeTag(neu, automatisch) { tag = neu; if (!automatisch) tagGewaehlt = true; auswerten(); zeichne(); }
+
+    // ---------- Aktualisieren: Knopf + automatisch alle 5 Minuten ----------
+    let laedtNeu = false;
+    async function aktualisieren(vonHand) {
+      if (!daten || $("app").hidden || laedtNeu || !$("laden").hidden) return;
+      if (!vonHand && (document.hidden || document.querySelector("#rechts .korr"))) return;   // nicht während einer Eingabe
+      const k = $("aktualisieren"), vorher = daten.letzteMail + "|" + daten.tagesplan.length;
+      laedtNeu = true; k.disabled = true; k.classList.add("dreht");
+      const r = await lade(speicherS("az_dispo_pin"), true);
+      laedtNeu = false; k.disabled = false; k.classList.remove("dreht");
+      if (r.status === "ok") {
+        const neu = daten.letzteMail + "|" + daten.tagesplan.length !== vorher;
+        if (vonHand || neu) toast(neu ? "Neue Einträge aus den NE.W-Mails geladen" : "Aktuell · Stand " + new Date(daten.stand).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }));
+      } else if (r.status === "pin" || r.status === "gesperrt") { toast(r.message, true); $("abmelden").click(); }
+      else if (vonHand && r.status !== "spaeter") toast(r.message || "Aktualisieren hat nicht geklappt.", true);
+    }
+    $("aktualisieren").addEventListener("click", () => aktualisieren(true));
+    setInterval(() => {
+      if (!daten || $("app").hidden) return;
+      if (Date.now() - geladenUm >= TAKT_MS) aktualisieren(false);
+      else if (!tagGewaehlt && startTagJetzt() !== tag) setzeTag(startTagJetzt(), true);   // um 14 Uhr auf den nächsten Fahrtag
+    }, Math.min(60000, TAKT_MS / 2));
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && daten && Date.now() - geladenUm >= TAKT_MS) aktualisieren(false); });
     $("pin-form").addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const pin = $("pin").value.trim(); if (!pin) return;
@@ -888,7 +945,7 @@ if (typeof module !== "undefined") module.exports = Linien;
       if (r.status === "ok") { speicherS("az_dispo_pin", pin); $("pin-seite").hidden = true; $("app").hidden = false; }
       else { $("pin-fehler").textContent = r.message || "Fehler."; $("pin").select(); }
     });
-    $("abmelden").addEventListener("click", () => { speicherS("az_dispo_pin", null); daten = null; $("pin").value = ""; $("app").hidden = true; $("pin-seite").hidden = false; $("pin").focus(); });
+    $("abmelden").addEventListener("click", () => { speicherS("az_dispo_pin", null); daten = null; tag = ""; tagGewaehlt = false; $("pin").value = ""; $("app").hidden = true; $("pin-seite").hidden = false; $("pin").focus(); });
     $("vor").addEventListener("click", () => setzeTag(Linien.naechsterWerktag(tag, -1)));
     $("nach").addEventListener("click", () => setzeTag(Linien.naechsterWerktag(tag, 1)));
     $("heute").addEventListener("click", () => setzeTag(Linien.startTag(daten.heute)));
@@ -908,8 +965,16 @@ if (typeof module !== "undefined") module.exports = Linien;
 
     // ---------- Demo (nur lokal / ?demo) ----------
     const Demo = {
-      erledigt: [], planErledigt: { 6: "erledigt 19.10.2026 07:12" }, d: null, nr: 1000,
+      erledigt: [], planErledigt: { 6: "erledigt 19.10.2026 07:12" }, d: null, nr: 1000, ladungen: 0, letzteMail: "2026-10-16 13:08",
       stand() { return this.d || (this.d = this.daten()); },
+      // beim 2. Laden kommt eine "neue NE.W-Mail" dazu (Ausfall am nächsten Fahrtag), damit man das Neuladen sieht
+      neueMail() {
+        const d = this.stand(), p = d.fahrgaeste.find((f) => f.linie === "Z26.0" && f.tour === "Hin");
+        const j = new Date(), uhr = String(j.getHours()).padStart(2, "0") + ":" + String(j.getMinutes()).padStart(2, "0");
+        d.tagesplan.push({ zeile: this.nr++, datum: "20.10.2026", name: p.name, tour: "Hin+Rück", art: "Ausfall", alteLinie: "Z26.0", neueLinie: "", abholzeit: p.abholzeit, grund: "krank gemeldet",
+          quelle: 'NEW: "Abmeldung 20.10."', eingang: "19.10.2026 " + uhr, erledigt: "" });
+        this.letzteMail = "2026-10-19 " + uhr;
+      },
       // Änderungen wie im Backend (nur im Speicher der Seite)
       fahrgast(b) {
         const d = this.stand(), key = Linien.nameKey(b.name), heute = "2026-10-19";
@@ -937,8 +1002,8 @@ if (typeof module !== "undefined") module.exports = Linien;
           log("Einplanung", de(b.ab), "", b.linie);
           return { status: "ok" };
         }
-        if (b.op === "austragen") { rows.forEach((f) => Object.assign(f, { status: "ausgeplant (Dispo 19.10.2026" + (b.grund ? ": " + b.grund : "") + ")", bis: de(Linien.plusTage(b.ab, -1)) })); log("Ausplanung", de(b.ab), b.linie, ""); return { status: "ok" }; }
-        if (b.op === "aufnehmen") { rows.forEach((f) => Object.assign(f, { status: "aktiv (wieder aufgenommen, Dispo 19.10.2026)", bis: "" })); return { status: "ok" }; }
+        if (b.op === "austragen") { rows.forEach((f) => Object.assign(f, { status: "ausgeplant (Dispo 19.10.2026" + (b.grund ? ": " + b.grund : "") + ")", bis: de(Linien.plusTage(b.ab, -1)), geaendert: "19.10.2026" })); log("Ausplanung", de(b.ab), b.linie, ""); return { status: "ok" }; }
+        if (b.op === "aufnehmen") { rows.forEach((f) => Object.assign(f, { status: "aktiv (wieder aufgenommen, Dispo 19.10.2026)", bis: "", geaendert: "19.10.2026" })); return { status: "ok" }; }
         return { status: "error", message: "Unbekannte Aktion." };
       },
       post(b) {
@@ -951,9 +1016,10 @@ if (typeof module !== "undefined") module.exports = Linien;
             return ok({ status: "ok", erledigt: this.erledigt.slice() });
           }
           if (b.aktion === "fahrgast") return ok(this.fahrgast(b));
+          if (++this.ladungen === 2) this.neueMail();
           const d = JSON.parse(JSON.stringify(this.stand()));
           d.tagesplan.forEach((t) => { if (this.planErledigt[t.zeile] !== undefined) t.erledigt = this.planErledigt[t.zeile]; });
-          ok(Object.assign({ status: "ok", heute: "2026-10-19", stand: new Date().toISOString(), letzteMail: "2026-10-16 13:08", erledigt: this.erledigt.slice() }, d));
+          ok(Object.assign({ status: "ok", heute: "2026-10-19", stand: new Date().toISOString(), letzteMail: this.letzteMail, erledigt: this.erledigt.slice() }, d));
         }, 400));
       },
       daten() {
@@ -983,7 +1049,7 @@ if (typeof module !== "undefined") module.exports = Linien;
         const f = (code, tour, i) => fahrgaeste.filter((x) => x.linie === code && x.tour === tour)[i];
         const beide = (code, i, extra) => { const n = f(code, "Hin", i).name; fahrgaeste.filter((x) => x.linie === code && x.name === n).forEach((x) => Object.assign(x, extra)); return n; };
         beide("E10.0SF", 1, { besonderheiten: "starke Sehschwäche / - außer Freitags - / Begleitperson" });
-        Object.assign(f("E10.0SF", "Hin", 3), { status: "aktiv (neu lt. Fahrplan 12.10.2026, ohne Mail)", ab: "12.10.2026" });
+        Object.assign(f("E10.0SF", "Hin", 3), { status: "aktiv (neu lt. Fahrplan 12.10.2026, ohne Mail)", ab: "12.10.2026", geaendert: "12.10.2026" });
         fahrgaeste.push(Object.assign({}, f("E10.0SF", "Hin", 0), { name: "Exempel, Rita", abholzeit: "10:20", status: "ausgeplant lt. Fahrplan 01.10.2026 (ohne Mail)", bis: "30.09.2026" }));
         beide("K13.0", 2, { besonderheiten: "Hinfahrt K13.0 / Rückfahrt K11.1SF / - nur Montag, Mittwoch und Freitag -" });
         beide("K13.0", 4, { besonderheiten: "- außer Montags - / Muss bitte vorne sitzen" });
@@ -997,7 +1063,7 @@ if (typeof module !== "undefined") module.exports = Linien;
         beide("Z2.0", 3, { status: "beendet (Beendigungsschreiben NE.W vorhanden)" });
         fahrgaeste.push(Object.assign({}, f("Z2.0", "Hin", 0), { name: "Studie, Paul", abholzeit: "06:12", status: "aktiv (neu lt. Fahrplan 26.10.2026, Mail J. Beispiel 13.10.2026)", ab: "26.10.2026" }));
         const wechsel = f("Z2.0", "Rück", 0).name;
-        Object.assign(f("Z26.0", "Rück", 1), { status: "ausgeplant (Mail K. Muster 16.10.2026) – Rückfahrt Z27.0 prüfen", bis: "23.10.2026" });
+        Object.assign(f("Z26.0", "Rück", 1), { status: "ausgeplant (Mail K. Muster 16.10.2026) – Rückfahrt Z27.0 prüfen", bis: "23.10.2026", geaendert: "16.10.2026" });
         const tagesplan = []; let zeile = 2;
         const tp = (datum, name, tour, art, alt, neu, zeit, grund, quelle, eingang) => tagesplan.push({ zeile: zeile++, datum, name, tour, art, alteLinie: alt, neueLinie: neu, abholzeit: zeit, grund, quelle, eingang, erledigt: "" });
         ["19.10.2026", "20.10.2026", "21.10.2026", "22.10.2026", "23.10.2026"].forEach((d) => tp(d, kw43, "Hin+Rück", "Ausfall", "ME1.0", "", "06:52", "fährt in KW43 (19.–23.10.) nicht mit", 'DISPO: "Zubringerfahrten KW43" (QuBi)', "15.10.2026 08:28"));
